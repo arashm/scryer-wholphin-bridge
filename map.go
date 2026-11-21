@@ -199,36 +199,49 @@ func imagePath(u *string) string {
 	return "/images/media/" + h
 }
 
-// backdropPath is "/images/media/<backdrop>-<poster>". Scryer hands out backdrop URLs that 404
-// when it has no backdrop, so the poster rides along as a fallback. Either half may be empty.
-func backdropPath(backdrop, poster *string) string {
+// backdropPath is "/images/media/<backdrop>-<poster>-<m|t><tmdb id>". Scryer hands out backdrop
+// URLs that 404 when it has no backdrop, so a TMDB lookup and the poster ride along as fallbacks.
+// Any part may be empty.
+func backdropPath(k string, tmdb int, backdrop, poster *string) string {
 	b, p := strings.TrimPrefix(imagePath(backdrop), "/images/media/"), strings.TrimPrefix(imagePath(poster), "/images/media/")
-	if b == "" && p == "" {
+	id := ""
+	if tmdb > 0 {
+		id = k[:1] + strconv.Itoa(tmdb)
+	}
+	if b == "" && p == "" && id == "" {
 		return ""
 	}
-	return "/images/media/" + b + "-" + p
+	return "/images/media/" + b + "-" + p + "-" + id
 }
 
-var imageRe = regexp.MustCompile(`^([0-9a-f]*)(?:-([0-9a-f]*))?$`)
+var imageRe = regexp.MustCompile(`^([0-9a-f]*)(?:-([0-9a-f]*)(?:-(?:([mt])([0-9]+))?)?)?$`)
 
-// imageRedirect maps a Seerr TMDB size + image hash to a Scryer image path, or "" if invalid.
-// exists reports whether a Scryer image path loads; it's only asked when there's a fallback.
-func imageRedirect(size, hash string, exists func(path string) bool) string {
+// imageRedirect maps a Seerr TMDB size + image hash to an image URL, or "" if there's none.
+// exists reports whether a Scryer image path loads. tmdbBackdrop returns a title's TMDB
+// backdrop file ("/x.jpg") or "". Both are only asked when needed.
+func imageRedirect(size, hash string, exists func(path string) bool, tmdbBackdrop func(kind string, id int) string) string {
 	m := imageRe.FindStringSubmatch(hash)
 	if m == nil {
 		return ""
 	}
-	bg, poster := m[1], m[2]
-	switch {
-	case !strings.Contains(size, "_and_h"): // poster sizes only ever get a plain poster hash
-		if bg == "" {
+	bg, poster, kind := m[1], m[2], map[string]string{"m": "movie", "t": "tv"}[m[3]]
+	id, _ := strconv.Atoi(m[4])
+	if !strings.Contains(size, "_and_h") { // poster sizes only ever get a plain poster hash
+		if bg == "" || m[2] != "" || id != 0 {
 			return ""
 		}
-		return "/images/media/" + bg + "/w250"
-	case bg != "" && (poster == "" || exists("/images/media/"+bg+"/w1280")):
-		return "/images/media/" + bg + "/w1280"
-	case poster != "":
-		return "/images/media/" + poster + "/original"
+		return scryerPublicURL + "/images/media/" + bg + "/w250"
+	}
+	if bg != "" && ((poster == "" && id == 0) || exists("/images/media/"+bg+"/w1280")) {
+		return scryerPublicURL + "/images/media/" + bg + "/w1280"
+	}
+	if id != 0 {
+		if f := tmdbBackdrop(kind, id); f != "" {
+			return "https://image.tmdb.org/t/p/w1280" + f
+		}
+	}
+	if poster != "" {
+		return scryerPublicURL + "/images/media/" + poster + "/original"
 	}
 	return ""
 }

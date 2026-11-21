@@ -109,3 +109,26 @@ func tmdbImage(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, "https://image.tmdb.org/t/p/"+size+"/"+file, http.StatusFound)
 }
+
+// tmdbBackdrop looks up a title's backdrop file on TMDB, or "" without a key or backdrop.
+func tmdbBackdrop(ctx context.Context) func(kind string, id int) string {
+	return func(kind string, id int) string {
+		if tmdbKey == "" {
+			return ""
+		}
+		return cached("tmdb:"+kind+":"+strconv.Itoa(id), func() (string, bool) {
+			var d struct {
+				BackdropPath string `json:"backdrop_path"`
+			}
+			err := tmdbGet(ctx, "/"+kind+"/"+strconv.Itoa(id), &d)
+			var he *httpError
+			if errors.As(err, &he) && he.code == http.StatusNotFound {
+				return "", true
+			}
+			if err != nil || !tmdbFileRe.MatchString(strings.TrimPrefix(d.BackdropPath, "/")) {
+				return "", err == nil
+			}
+			return d.BackdropPath, true
+		})
+	}
+}

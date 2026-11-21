@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 const pageSize = 20
@@ -158,7 +160,7 @@ func fillMediaInfo(ctx context.Context, token string, rs []result) ([]result, er
 }
 
 func newResult(k string, tmdb int, name string, year *int, overview, poster, backdrop *string) result {
-	r := result{ID: tmdb, MediaType: k, Overview: str(overview), PosterPath: imagePath(poster), BackdropPath: backdropPath(backdrop, poster)}
+	r := result{ID: tmdb, MediaType: k, Overview: str(overview), PosterPath: imagePath(poster), BackdropPath: backdropPath(k, tmdb, backdrop, poster)}
 	if k == "movie" {
 		r.Title, r.ReleaseDate = name, yearDate(year)
 	} else {
@@ -367,7 +369,7 @@ func movieDetails(ctx context.Context, r *http.Request, token string) (any, erro
 	lib := newLibrary(d.T, d.Q, hashID(d.Me.ID))
 	return map[string]any{
 		"id": id, "title": m.Name, "originalTitle": m.Name, "overview": m.Overview,
-		"posterPath": imagePath(m.PosterURL), "backdropPath": backdropPath(m.BackgroundURL, m.PosterURL),
+		"posterPath": imagePath(m.PosterURL), "backdropPath": backdropPath("movie", id, m.BackgroundURL, m.PosterURL),
 		"releaseDate": release, "runtime": m.RuntimeMinutes, "imdbId": m.ImdbID, "status": m.Status,
 		"genres": genres(m.GenresAndThemes), "mediaInfo": lib.mediaInfo("movie", id),
 		"credits": map[string]any{"cast": []any{}, "crew": []any{}},
@@ -446,7 +448,7 @@ func tvDetails(ctx context.Context, r *http.Request, token string) (any, error) 
 	}
 	return map[string]any{
 		"id": id, "name": s.Name, "originalName": s.Name, "overview": s.Overview,
-		"posterPath": imagePath(s.PosterURL), "backdropPath": backdropPath(s.BackgroundURL, s.PosterURL),
+		"posterPath": imagePath(s.PosterURL), "backdropPath": backdropPath("tv", id, s.BackgroundURL, s.PosterURL),
 		"firstAirDate": first, "genres": genres(s.GenresAndThemes), "networks": networks,
 		"seasons": seasons, "numberOfSeason": len(seasons), "mediaInfo": lib.mediaInfo("tv", id),
 		"credits": map[string]any{"cast": []any{}, "crew": []any{}},
@@ -652,21 +654,60 @@ func deleteRequest(ctx context.Context, r *http.Request, token string) (any, err
 // ---- images ----
 
 func imageProxy(w http.ResponseWriter, r *http.Request) {
-	p := imageRedirect(r.PathValue("size"), r.PathValue("hash"), func(path string) bool {
-		req, err := http.NewRequestWithContext(r.Context(), http.MethodHead, scryerURL+path, nil)
-		if err != nil {
-			return false
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return false
-		}
-		resp.Body.Close()
-		return resp.StatusCode == http.StatusOK
-	})
-	if p == "" {
+	exists := func(path string) bool {
+		return cached("scryer:"+path, func() (string, bool) {
+			req, err := http.NewRequestWithContext(r.Context(), http.MethodHead, scryerURL+path, nil)
+			if err != nil {
+				return "", false
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				return "", false
+			}
+			resp.Body.Close()
+			switch resp.StatusCode {
+			case http.StatusOK:
+				return "1", true
+			case http.StatusNotFound:
+				return "", true
+			}
+			return "", false // don't remember outages
+		}) != ""
+	}
+	u := imageRedirect(r.PathValue("size"), r.PathValue("hash"), exists, tmdbBackdrop(r.Context()))
+	if u == "" {
 		http.NotFound(w, r)
 		return
 	}
-	http.Redirect(w, r, scryerPublicURL+p, http.StatusFound)
+	http.Redirect(w, r, u, http.StatusFound)
+}
+
+const cacheTTL = 7 * 24 * time.Hour
+
+type cacheEntry struct {
+	v     string
+	until time.Time
+}
+
+// ponytail: in-memory and never pruned. Entries are per title, so it stays small; lost on restart.
+var cache = struct {
+	sync.Mutex
+	m map[string]cacheEntry
+}{m: map[string]cacheEntry{}}
+
+// cached returns f's value for key, remembering it for cacheTTL when f says it's definitive.
+func cached(key string, f func() (v string, ok bool)) string {
+	cache.Lock()
+	e, hit := cache.m[key]
+	cache.Unlock()
+	if hit && time.Now().Before(e.until) {
+		return e.v
+	}
+	v, ok := f()
+	if ok {
+		cache.Lock()
+		cache.m[key] = cacheEntry{v, time.Now().Add(cacheTTL)}
+		cache.Unlock()
+	}
+	return v
 }
