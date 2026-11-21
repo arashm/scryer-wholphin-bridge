@@ -89,7 +89,9 @@ With **Auto-approve** on, a request from the TV starts a real download immediate
 - **Play in Jellyfin** only appears when Scryer has a Jellyfin playback link for the title, which is often missing. Such items still show as Available.
 - List rows show January 1 of the release year (Scryer lists only carry the year). Detail pages have the real date.
 - Search returns a single page (up to 20 movies plus series).
-- Empty: upcoming movies (Scryer has no such section), genre rows, streaming providers, cast/crew pages.
+- Upcoming rows are short: Scryer only knows a handful of unreleased titles (its upcoming sections plus titles tagged Announced/Upcoming).
+- Many discovery titles have no backdrop in Scryer. Their poster is shown as the backdrop instead.
+- Empty: genre rows, streaming providers, cast/crew pages (Scryer has no person data).
 - No username/password login, no 4K, no editing of an existing request. See `PLAN.md`.
 
 ## Development

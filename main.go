@@ -40,11 +40,13 @@ func routes() *http.ServeMux {
 	m.HandleFunc("GET "+v1+"/settings/public", settingsPublic)
 	m.Handle("GET "+v1+"/search", api(search))
 
-	m.Handle("GET "+v1+"/discover/trending", api(discover("trending_now")))
-	m.Handle("GET "+v1+"/discover/movies", api(discover("popular_movies")))
-	m.Handle("GET "+v1+"/discover/tv", api(discover("popular_series")))
-	m.Handle("GET "+v1+"/discover/tv/upcoming", api(discover("upcoming_series")))
-	m.Handle("GET "+v1+"/discover/movies/upcoming", api(emptyPage)) // Scryer has no upcoming-movies section
+	m.Handle("GET "+v1+"/discover/trending", api(discover("", `sectionId:"trending_now"`)))
+	m.Handle("GET "+v1+"/discover/movies", api(discover("", `sectionId:"popular_movies"`)))
+	m.Handle("GET "+v1+"/discover/tv", api(discover("", `sectionId:"popular_series"`)))
+	// Scryer's upcoming sections are tiny and there's none for movies, so add the titles it tags as unreleased.
+	const unreleased = `statusTags:["Announced","Upcoming"], includeUnresolved:true, sort:RELEASE_DATE`
+	m.Handle("GET "+v1+"/discover/tv/upcoming", api(discover("tv", `sectionId:"upcoming_series"`, `sectionId:"upcoming_next_season"`, unreleased)))
+	m.Handle("GET "+v1+"/discover/movies/upcoming", api(discover("movie", unreleased)))
 	m.HandleFunc("GET "+v1+"/discover/genreslider/{kind}", emptyList)
 	m.HandleFunc("GET "+v1+"/watchproviders/{kind}", emptyList)
 	m.HandleFunc("GET "+v1+"/person/{id}/combined_credits", emptyCredits)

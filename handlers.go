@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -157,7 +158,7 @@ func fillMediaInfo(ctx context.Context, token string, rs []result) ([]result, er
 }
 
 func newResult(k string, tmdb int, name string, year *int, overview, poster, backdrop *string) result {
-	r := result{ID: tmdb, MediaType: k, Overview: str(overview), PosterPath: imagePath(poster), BackdropPath: imagePath(backdrop)}
+	r := result{ID: tmdb, MediaType: k, Overview: str(overview), PosterPath: imagePath(poster), BackdropPath: backdropPath(backdrop, poster)}
 	if k == "movie" {
 		r.Title, r.ReleaseDate = name, yearDate(year)
 	} else {
@@ -230,25 +231,49 @@ func search(ctx context.Context, r *http.Request, token string) (any, error) {
 	return page{Page: 1, TotalPages: 1, TotalResults: len(rs), Results: rs}, nil
 }
 
-func discover(section string) apiFunc {
+// discover merges one page of each discoveryItems input (GraphQL input fields, e.g. `sectionId:"x"`),
+// keeping only kind ("movie"/"tv") unless it's "".
+// ponytail: kind is filtered after paging, fine for the tiny upcoming sets it's used on.
+func discover(kind string, inputs ...string) apiFunc {
+	q := `query($o:Int!){`
+	for i, in := range inputs {
+		q += fmt.Sprintf(` d%d: discoveryItems(input:{%s, limit:%d, offset:$o, includePublic:true}){ totalCount items{%s} }`, i, in, pageSize, discoveryFields)
+	}
+	q += ` }`
 	return func(ctx context.Context, r *http.Request, token string) (any, error) {
 		pg := queryInt(r, "page", 1)
-		var d struct {
-			D struct {
-				Items      []discoveryItem
-				TotalCount int
+		off := (pg - 1) * pageSize
+		var d map[string]struct {
+			Items      []discoveryItem
+			TotalCount int
+		}
+		if err := gql(ctx, token, q, map[string]any{"o": off}, &d); err != nil {
+			return nil, err
+		}
+		var items []discoveryItem
+		total, more := 0, false
+		for i := range inputs {
+			x := d[fmt.Sprint("d", i)]
+			items = append(items, x.Items...)
+			if len(x.Items) == pageSize { // Scryer's totalCount is only trustworthy when there's more
+				total, more = total+max(x.TotalCount, off+pageSize), true
 			}
 		}
-		err := gql(ctx, token, `query($s:String!,$o:Int!){ d: discoveryItems(input:{sectionId:$s, limit:20, offset:$o, includePublic:true}){ totalCount items{`+discoveryFields+`} } }`,
-			map[string]any{"s": section, "o": (pg - 1) * pageSize}, &d)
+		rs, seen := []result{}, map[string]bool{}
+		for _, it := range discoveryResults(items) {
+			if k := it.MediaType + strconv.Itoa(it.ID); !seen[k] && (kind == "" || kind == it.MediaType) {
+				seen[k] = true
+				rs = append(rs, it)
+			}
+		}
+		if !more {
+			total = off + len(rs)
+		}
+		rs, err := fillMediaInfo(ctx, token, rs)
 		if err != nil {
 			return nil, err
 		}
-		rs, err := fillMediaInfo(ctx, token, discoveryResults(d.D.Items))
-		if err != nil {
-			return nil, err
-		}
-		return page{Page: pg, TotalPages: (d.D.TotalCount + pageSize - 1) / pageSize, TotalResults: d.D.TotalCount, Results: rs}, nil
+		return page{Page: pg, TotalPages: (total + pageSize - 1) / pageSize, TotalResults: total, Results: rs}, nil
 	}
 }
 
@@ -279,10 +304,6 @@ func similar(k string) apiFunc {
 		}
 		return page{Page: 1, TotalPages: 1, TotalResults: len(rs), Results: rs}, nil
 	}
-}
-
-func emptyPage(ctx context.Context, r *http.Request, token string) (any, error) {
-	return page{Page: queryInt(r, "page", 1), Results: []result{}}, nil
 }
 
 func emptyList(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, []any{}) }
@@ -351,7 +372,7 @@ func movieDetails(ctx context.Context, r *http.Request, token string) (any, erro
 	lib := newLibrary(d.T, d.Q, hashID(d.Me.ID))
 	return map[string]any{
 		"id": id, "title": m.Name, "originalTitle": m.Name, "overview": m.Overview,
-		"posterPath": imagePath(m.PosterURL), "backdropPath": imagePath(m.BackgroundURL),
+		"posterPath": imagePath(m.PosterURL), "backdropPath": backdropPath(m.BackgroundURL, m.PosterURL),
 		"releaseDate": release, "runtime": m.RuntimeMinutes, "imdbId": m.ImdbID, "status": m.Status,
 		"genres": genres(m.GenresAndThemes), "mediaInfo": lib.mediaInfo("movie", id),
 		"credits": map[string]any{"cast": []any{}, "crew": []any{}},
@@ -430,7 +451,7 @@ func tvDetails(ctx context.Context, r *http.Request, token string) (any, error) 
 	}
 	return map[string]any{
 		"id": id, "name": s.Name, "originalName": s.Name, "overview": s.Overview,
-		"posterPath": imagePath(s.PosterURL), "backdropPath": imagePath(s.BackgroundURL),
+		"posterPath": imagePath(s.PosterURL), "backdropPath": backdropPath(s.BackgroundURL, s.PosterURL),
 		"firstAirDate": first, "genres": genres(s.GenresAndThemes), "networks": networks,
 		"seasons": seasons, "numberOfSeason": len(seasons), "mediaInfo": lib.mediaInfo("tv", id),
 		"credits": map[string]any{"cast": []any{}, "crew": []any{}},
@@ -636,10 +657,21 @@ func deleteRequest(ctx context.Context, r *http.Request, token string) (any, err
 // ---- images ----
 
 func imageProxy(w http.ResponseWriter, r *http.Request) {
-	u := imageRedirect(r.PathValue("size"), r.PathValue("hash"))
-	if u == "" {
+	p := imageRedirect(r.PathValue("size"), r.PathValue("hash"), func(path string) bool {
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodHead, scryerURL+path, nil)
+		if err != nil {
+			return false
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	})
+	if p == "" {
 		http.NotFound(w, r)
 		return
 	}
-	http.Redirect(w, r, u, http.StatusFound)
+	http.Redirect(w, r, scryerPublicURL+p, http.StatusFound)
 }

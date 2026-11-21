@@ -66,21 +66,37 @@ func TestStatus(t *testing.T) {
 }
 
 func TestImages(t *testing.T) {
-	scryerPublicURL = "https://s"
 	if got := imagePath(ptr("/images/media/ab12/w250")); got != "/images/media/ab12" {
 		t.Errorf("imagePath = %q", got)
 	}
 	if got := imagePath(ptr("/images/media/../evil/w250")); got != "" {
 		t.Errorf("imagePath accepted %q", got)
 	}
-	if got := imageRedirect("w500", "ab12"); got != "https://s/images/media/ab12/w250" {
-		t.Errorf("poster = %q", got)
+	if got := backdropPath(ptr("/images/media/cd34/w1280"), ptr("/images/media/ab12/w250")); got != "/images/media/cd34-ab12" {
+		t.Errorf("backdropPath = %q", got)
 	}
-	if got := imageRedirect("w1920_and_h1080_multi_faces", "ab12"); got != "https://s/images/media/ab12/w1280" {
-		t.Errorf("backdrop = %q", got)
+	if got := backdropPath(nil, ptr("/images/media/ab12/w250")); got != "/images/media/-ab12" {
+		t.Errorf("backdropPath without backdrop = %q", got)
 	}
-	if got := imageRedirect("w500", "x.evil.com"); got != "" {
-		t.Errorf("redirect accepted bad hash: %q", got)
+	yes := func(string) bool { return true }
+	no := func(string) bool { return false }
+	for _, c := range []struct {
+		size, hash string
+		exists     func(string) bool
+		want       string
+	}{
+		{"w500", "ab12", no, "/images/media/ab12/w250"},
+		{"w1920_and_h1080_multi_faces", "cd34-ab12", yes, "/images/media/cd34/w1280"},
+		{"w1920_and_h1080_multi_faces", "cd34-ab12", no, "/images/media/ab12/original"}, // Scryer 404s the backdrop
+		{"w1920_and_h1080_multi_faces", "-ab12", yes, "/images/media/ab12/original"},
+		{"w1920_and_h1080_multi_faces", "cd34", no, "/images/media/cd34/w1280"}, // no fallback, so don't bother checking
+		{"w500", "x.evil.com", yes, ""},
+		{"w500", "-ab12", yes, ""},
+		{"w1920_and_h1080_multi_faces", "-", yes, ""},
+	} {
+		if got := imageRedirect(c.size, c.hash, c.exists); got != c.want {
+			t.Errorf("imageRedirect(%q, %q) = %q, want %q", c.size, c.hash, got, c.want)
+		}
 	}
 }
 

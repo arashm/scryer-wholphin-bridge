@@ -197,16 +197,38 @@ func imagePath(u *string) string {
 	return "/images/media/" + h
 }
 
-// imageRedirect maps a Seerr TMDB size + hash to the Scryer image URL, or "" if invalid.
-func imageRedirect(size, hash string) string {
-	if !hexRe.MatchString(hash) {
+// backdropPath is "/images/media/<backdrop>-<poster>". Scryer hands out backdrop URLs that 404
+// when it has no backdrop, so the poster rides along as a fallback. Either half may be empty.
+func backdropPath(backdrop, poster *string) string {
+	b, p := strings.TrimPrefix(imagePath(backdrop), "/images/media/"), strings.TrimPrefix(imagePath(poster), "/images/media/")
+	if b == "" && p == "" {
 		return ""
 	}
-	variant := "w250"
-	if strings.Contains(size, "_and_h") {
-		variant = "w1280"
+	return "/images/media/" + b + "-" + p
+}
+
+var imageRe = regexp.MustCompile(`^([0-9a-f]*)(?:-([0-9a-f]*))?$`)
+
+// imageRedirect maps a Seerr TMDB size + image hash to a Scryer image path, or "" if invalid.
+// exists reports whether a Scryer image path loads; it's only asked when there's a fallback.
+func imageRedirect(size, hash string, exists func(path string) bool) string {
+	m := imageRe.FindStringSubmatch(hash)
+	if m == nil {
+		return ""
 	}
-	return scryerPublicURL + "/images/media/" + hash + "/" + variant
+	bg, poster := m[1], m[2]
+	switch {
+	case !strings.Contains(size, "_and_h"): // poster sizes only ever get a plain poster hash
+		if bg == "" {
+			return ""
+		}
+		return "/images/media/" + bg + "/w250"
+	case bg != "" && (poster == "" || exists("/images/media/"+bg+"/w1280")):
+		return "/images/media/" + bg + "/w1280"
+	case poster != "":
+		return "/images/media/" + poster + "/original"
+	}
+	return ""
 }
 
 // jellyfinID pulls the 32-hex id= from a Jellyfin web link and dashes it into a UUID.
