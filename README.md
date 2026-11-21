@@ -22,17 +22,31 @@ If **Security → "Only users with Manage System Settings can create or use API 
 
 ## 2. Run the bridge
 
+Images for `linux/amd64` and `linux/arm64` are published to `ghcr.io/arashm/scryer-wholphin-bridge`. Tags: `latest` (main), `X.Y.Z` / `X.Y` (release tags `vX.Y.Z`), and `sha-<commit>`.
+
+Docker Compose:
+
+```yaml
+services:
+  scryer-wholphin-bridge:
+    image: ghcr.io/arashm/scryer-wholphin-bridge:latest
+    restart: unless-stopped
+    ports:
+      - "5055:5055"
+    environment:
+      SCRYER_URL: https://scryer.example.com
+```
+
 Docker:
 
 ```sh
-docker build -t scryer-wholphin-bridge .
 docker run -d --name scryer-wholphin-bridge --restart unless-stopped \
   -p 5055:5055 \
   -e SCRYER_URL=https://scryer.example.com \
-  scryer-wholphin-bridge
+  ghcr.io/arashm/scryer-wholphin-bridge:latest
 ```
 
-Or directly with Go:
+Build the image yourself with `docker build -t scryer-wholphin-bridge .`, or run directly with Go:
 
 ```sh
 SCRYER_URL=https://scryer.example.com go run .
