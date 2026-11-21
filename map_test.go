@@ -125,3 +125,25 @@ func TestHashIDStable(t *testing.T) {
 		t.Error("hashID not stable/positive")
 	}
 }
+
+func TestCreditResults(t *testing.T) {
+	rs := creditResults([]tmdbCredit{
+		{ID: 1, MediaType: "movie", Title: "M", Character: "Hero", PosterPath: "/p.jpg", ReleaseDate: "2001-02-03"},
+		{ID: 2, MediaType: "tv", Name: "S", Job: "Director"},
+		{ID: 3, MediaType: "movie", Adult: true},
+		{ID: 4, MediaType: "person"},
+	})
+	if len(rs) != 2 || rs[0].Character != "Hero" || rs[0].PosterPath != "/p.jpg" || rs[1].Job != "Director" || rs[1].MediaType != "tv" {
+		t.Errorf("creditResults = %+v", rs)
+	}
+	for s, want := range map[string]bool{"w500": true, "original": true, "w1920_and_h1080_multi_faces": true, "w500/../x": false, "": false} {
+		if tmdbSizeRe.MatchString(s) != want {
+			t.Errorf("tmdb size %q", s)
+		}
+	}
+	for f, want := range map[string]bool{"abc123.jpg": true, "a.jpg?x": false, "..jpg": false, "a/b.jpg": false} {
+		if tmdbFileRe.MatchString(f) != want {
+			t.Errorf("tmdb file %q", f)
+		}
+	}
+}

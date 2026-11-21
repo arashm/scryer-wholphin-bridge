@@ -308,11 +308,6 @@ func similar(k string) apiFunc {
 
 func emptyList(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, []any{}) }
 
-func emptyCredits(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.Atoi(r.PathValue("id"))
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "cast": []any{}, "crew": []any{}})
-}
-
 // ---- details ----
 
 type genre struct {

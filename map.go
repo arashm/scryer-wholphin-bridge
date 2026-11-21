@@ -132,6 +132,8 @@ type result struct {
 	BackdropPath string     `json:"backdropPath,omitempty"`
 	ReleaseDate  string     `json:"releaseDate,omitempty"`
 	FirstAirDate string     `json:"firstAirDate,omitempty"`
+	Character    string     `json:"character,omitempty"` // person credits only
+	Job          string     `json:"job,omitempty"`
 	MediaInfo    *mediaInfo `json:"mediaInfo,omitempty"`
 }
 

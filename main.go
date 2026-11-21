@@ -29,6 +29,9 @@ func main() {
 	if dryRun {
 		log.Print("BRIDGE_DRY_RUN=1: POST /request only previews, nothing is submitted")
 	}
+	if tmdbKey == "" {
+		log.Print("TMDB_API_KEY not set: actor pages stay empty")
+	}
 	log.Printf("listening on %s, scryer %s", addr, scryerURL)
 	log.Fatal(http.ListenAndServe(addr, logged(routes())))
 }
@@ -49,7 +52,7 @@ func routes() *http.ServeMux {
 	m.Handle("GET "+v1+"/discover/movies/upcoming", api(discover("movie", unreleased)))
 	m.HandleFunc("GET "+v1+"/discover/genreslider/{kind}", emptyList)
 	m.HandleFunc("GET "+v1+"/watchproviders/{kind}", emptyList)
-	m.HandleFunc("GET "+v1+"/person/{id}/combined_credits", emptyCredits)
+	m.Handle("GET "+v1+"/person/{id}/combined_credits", api(personCredits))
 
 	m.Handle("GET "+v1+"/movie/{id}", api(movieDetails))
 	m.Handle("GET "+v1+"/tv/{id}", api(tvDetails))
@@ -64,6 +67,7 @@ func routes() *http.ServeMux {
 	m.Handle("DELETE "+v1+"/request/{id}", api(deleteRequest))
 
 	m.HandleFunc("GET /imageproxy/tmdb/t/p/{size}/images/media/{hash}", imageProxy)
+	m.HandleFunc("GET /imageproxy/tmdb/t/p/{size}/{file}", tmdbImage)
 	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("unhandled: %s %s", r.Method, r.URL.Path)
 		writeJSON(w, http.StatusNotFound, map[string]string{"message": "not implemented by scryer-wholphin-bridge"})

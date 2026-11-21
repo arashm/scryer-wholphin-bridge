@@ -57,9 +57,14 @@ SCRYER_URL=https://scryer.example.com go run .
 | `SCRYER_URL` | required | Scryer base URL as the bridge reaches it (an internal address is fine) |
 | `SCRYER_PUBLIC_URL` | `SCRYER_URL` | Scryer URL as the **TV** reaches it. Images are redirected there |
 | `LISTEN_ADDR` | `:5055` | |
+| `TMDB_API_KEY` | unset | Optional. Fills actor pages (see below). A TMDB v3 API key or v4 read access token |
 | `BRIDGE_DRY_RUN` | off | `1` makes requests only preview (logged), so nothing is submitted |
 
 The bridge stores nothing. Each request carries the user's Scryer API key.
+
+### Actor pages (optional)
+
+Scryer has no person data, so on its own the bridge leaves the "more from this actor" grid empty. With `TMDB_API_KEY` set, the bridge gets the actor's movies and series from TMDB and marks which ones are in your library or requested, using Scryer. Get a free key under *Settings → API* on [themoviedb.org](https://www.themoviedb.org/settings/api). Those posters load from `image.tmdb.org`, so the TV needs internet access.
 
 ## 3. Connect Wholphin
 
@@ -91,7 +96,7 @@ With **Auto-approve** on, a request from the TV starts a real download immediate
 - Search returns a single page (up to 20 movies plus series).
 - Upcoming rows are short: Scryer only knows a handful of unreleased titles (its upcoming sections plus titles tagged Announced/Upcoming).
 - Many discovery titles have no backdrop in Scryer. Their poster is shown as the backdrop instead.
-- Empty: genre rows, streaming providers, cast/crew pages (Scryer has no person data).
+- Empty: genre rows, streaming providers. Actor pages are empty unless `TMDB_API_KEY` is set.
 - No username/password login, no 4K, no editing of an existing request. See `PLAN.md`.
 
 ## Development
