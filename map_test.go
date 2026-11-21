@@ -1,0 +1,111 @@
+package main
+
+import "testing"
+
+func ptr[T any](v T) *T { return &v }
+
+func TestPermissions(t *testing.T) {
+	for _, c := range []struct {
+		req, auto []string
+		want      int
+	}{
+		{[]string{"MOVIE", "SERIES", "ANIME"}, []string{"MOVIE"}, permRequest | permAutoApprove},
+		{[]string{"MOVIE"}, nil, permRequestMovie},
+		{[]string{"ANIME"}, nil, permRequestTV},
+		{nil, []string{"MOVIE"}, 0}, // auto-approve without request is meaningless
+	} {
+		if got := permissions(c.req, c.auto); got != c.want {
+			t.Errorf("permissions(%v,%v) = %d, want %d", c.req, c.auto, got, c.want)
+		}
+	}
+}
+
+func TestStatus(t *testing.T) {
+	movie := title{Facet: "MOVIE", MediaFiles: []struct{}{{}}, ExternalIDs: []extID{{"tmdb", "1"}}}
+	partial := title{Facet: "ANIME", EpisodesOwned: ptr(54), EpisodesTotal: ptr(57), ExternalIDs: []extID{{"tmdb", "2"}},
+		Collections: []collection{
+			{"SPECIALS", "0", ptr(0), ptr(58)},
+			{"SEASON", "1", ptr(24), ptr(24)},
+			{"SEASON", "3", ptr(6), ptr(9)},
+			{"SEASON", "4", ptr(0), ptr(12)},
+		}}
+	sel := &struct {
+		SeasonNumbers []int `json:"seasonNumbers"`
+	}{[]int{4}}
+	reqs := []scryerRequest{
+		{ID: "r1", Facet: "ANIME", Status: "APPROVED", ExternalIDs: []extID{{"tmdb", "2"}}, Selection: sel},
+		{ID: "r2", Facet: "MOVIE", Status: "PENDING", ExternalIDs: []extID{{"tmdb", "3"}}},
+		{ID: "r3", Facet: "MOVIE", Status: "CANCELED", ExternalIDs: []extID{{"tmdb", "4"}}},
+		{ID: "r4", Facet: "SERIES", Status: "PENDING", ExternalIDs: []extID{{"tmdb", "1"}}}, // tmdb ids collide across kinds
+	}
+	lib := newLibrary([]title{movie, partial}, reqs, 7)
+
+	if mi := lib.mediaInfo("movie", 1); mi == nil || mi.Status != 5 || len(mi.Requests) != 0 {
+		t.Errorf("owned movie: %+v", mi)
+	}
+	mi := lib.mediaInfo("tv", 2)
+	if mi == nil || mi.Status != 4 {
+		t.Fatalf("partial anime as tv: %+v", mi)
+	}
+	got := map[int]int{}
+	for _, s := range mi.Seasons {
+		got[s.SeasonNumber] = s.Status
+	}
+	if got[1] != 5 || got[3] != 4 || got[4] != 3 || len(got) != 3 {
+		t.Errorf("seasons = %v", got)
+	}
+	if mi := lib.mediaInfo("movie", 3); mi == nil || mi.Status != 2 || mi.Requests[0].Status != 1 || mi.Requests[0].RequestedBy.ID != 7 {
+		t.Errorf("pending movie: %+v", mi)
+	}
+	if mi := lib.mediaInfo("movie", 4); mi != nil {
+		t.Errorf("canceled request should be requestable again: %+v", mi)
+	}
+	if mi := lib.mediaInfo("tv", 1); mi == nil || mi.Status != 2 {
+		t.Errorf("tv 1 must not see movie 1: %+v", mi)
+	}
+}
+
+func TestImages(t *testing.T) {
+	scryerPublicURL = "https://s"
+	if got := imagePath(ptr("/images/media/ab12/w250")); got != "/images/media/ab12" {
+		t.Errorf("imagePath = %q", got)
+	}
+	if got := imagePath(ptr("/images/media/../evil/w250")); got != "" {
+		t.Errorf("imagePath accepted %q", got)
+	}
+	if got := imageRedirect("w500", "ab12"); got != "https://s/images/media/ab12/w250" {
+		t.Errorf("poster = %q", got)
+	}
+	if got := imageRedirect("w1920_and_h1080_multi_faces", "ab12"); got != "https://s/images/media/ab12/w1280" {
+		t.Errorf("backdrop = %q", got)
+	}
+	if got := imageRedirect("w500", "x.evil.com"); got != "" {
+		t.Errorf("redirect accepted bad hash: %q", got)
+	}
+}
+
+func TestJellyfinID(t *testing.T) {
+	tt := &title{PlaybackLinks: []struct{ Href string }{{"https://jf/web/index.html#!/details?id=0123456789abcdef0123456789ABCDEF&context=home"}}}
+	if got := jellyfinID(tt); got != "01234567-89ab-cdef-0123-456789abcdef" {
+		t.Errorf("jellyfinID = %q", got)
+	}
+}
+
+func TestRatingScore(t *testing.T) {
+	rs := []rating{{"tomatoes", ptr(36.4), 3.6}, {"rogerebert", nil, 2.5}}
+	if v := ratingScore(rs, "tomatoes"); v == nil || *v != 36 {
+		t.Errorf("tomatoes = %v", v)
+	}
+	if v := ratingScore(rs, "rogerebert"); v == nil || *v != 25 {
+		t.Errorf("fallback to normalized = %v", v)
+	}
+	if v := ratingScore(rs, "popcorn"); v != nil {
+		t.Errorf("missing source = %v", *v)
+	}
+}
+
+func TestHashIDStable(t *testing.T) {
+	if hashID("f3018f03-abcb-4351-ac58-d63f88886e71") != hashID("f3018f03-abcb-4351-ac58-d63f88886e71") || hashID("a") < 0 {
+		t.Error("hashID not stable/positive")
+	}
+}
