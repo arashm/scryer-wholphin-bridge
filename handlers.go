@@ -606,6 +606,8 @@ func createRequest(ctx context.Context, r *http.Request, token string) (any, err
 		return nil, &httpError{http.StatusForbidden, "no " + facet + " library you can request in (accounts with Manage Titles can't request)"}
 	}
 	if body.MediaType == "tv" && len(body.Seasons) > 0 {
+		// Scryer drops the selection unless the monitor type is ADVANCED.
+		in["requestedMonitorType"] = "ADVANCED"
 		in["requestedMonitorSelection"] = map[string]any{"seasonNumbers": body.Seasons}
 	}
 
@@ -635,6 +637,63 @@ func createRequest(ctx context.Context, r *http.Request, token string) (any, err
 		RequestedBy: seerrUser{ID: hashID(d.Me.ID)},
 		Media:       &mediaInfo{ID: body.MediaID, TmdbID: body.MediaID, MediaType: body.MediaType, Requests: []mediaRequest{}},
 	}}, nil
+}
+
+// updateRequest replaces the seasons of a pending TV request. Wholphin sends the full new set.
+func updateRequest(ctx context.Context, r *http.Request, token string) (any, error) {
+	id, err := pathInt(r, "id")
+	if err != nil {
+		return nil, err
+	}
+	var body struct {
+		Seasons []int `json:"seasons"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Seasons) == 0 {
+		return nil, &httpError{http.StatusBadRequest, "need at least one season"}
+	}
+	var d struct {
+		Me *struct{ ID string }
+		Q  []struct {
+			scryerRequest
+			RequestedQualityProfileID *string
+		}
+	}
+	if err := gql(ctx, token, `{ me{id} q: myMediaRequests(status:PENDING, limit:1000){ `+requestFields+` requestedQualityProfileId } }`, nil, &d); err != nil {
+		return nil, err
+	}
+	if d.Me == nil {
+		return nil, &httpError{http.StatusUnauthorized, "invalid Scryer API key"}
+	}
+	for _, q := range d.Q {
+		if hashID(q.ID) != id {
+			continue
+		}
+		if q.Facet == "MOVIE" {
+			return nil, &httpError{http.StatusBadRequest, "only TV requests have seasons to change"}
+		}
+		if q.RequestedQualityProfileID == nil {
+			return nil, &httpError{http.StatusBadGateway, "request has no quality profile to keep"}
+		}
+		in := map[string]any{
+			"requestId": q.ID, "requestedQualityProfileId": *q.RequestedQualityProfileID, // required, so resend the current one
+			"requestedMonitorType":      "ADVANCED",
+			"requestedMonitorSelection": monitorSelection{body.Seasons},
+		}
+		out := q.scryerRequest
+		if dryRun {
+			log.Printf("DRY RUN update request %s %q: seasons %v", q.ID, q.Title, body.Seasons)
+			out.Selection = &monitorSelection{body.Seasons}
+		} else {
+			var m struct{ U scryerRequest }
+			if err := gql(ctx, token, `mutation($in:UpdateMediaRequestInput!){ u: updateMyMediaRequest(input:$in){ `+requestFields+` } }`, map[string]any{"in": in}, &m); err != nil {
+				return nil, err
+			}
+			log.Printf("updated request %s %q: seasons %v", q.ID, q.Title, body.Seasons)
+			out = m.U
+		}
+		return newLibrary(nil, nil, hashID(d.Me.ID)).toRequest(out, tmdbOf(out.ExternalIDs)), nil
+	}
+	return nil, &httpError{http.StatusNotFound, "no pending request with that id"}
 }
 
 func deleteRequest(ctx context.Context, r *http.Request, token string) (any, error) {

@@ -64,6 +64,7 @@ func routes() *http.ServeMux {
 
 	m.Handle("GET "+v1+"/request", api(listRequests))
 	m.Handle("POST "+v1+"/request", api(createRequest))
+	m.Handle("PUT "+v1+"/request/{id}", api(updateRequest))
 	m.Handle("DELETE "+v1+"/request/{id}", api(deleteRequest))
 
 	m.HandleFunc("GET /imageproxy/tmdb/t/p/{size}/images/media/{hash}", imageProxy)

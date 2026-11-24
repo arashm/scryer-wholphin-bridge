@@ -29,9 +29,7 @@ func TestStatus(t *testing.T) {
 			{"SEASON", "3", ptr(6), ptr(9)},
 			{"SEASON", "4", ptr(0), ptr(12)},
 		}}
-	sel := &struct {
-		SeasonNumbers []int `json:"seasonNumbers"`
-	}{[]int{4}}
+	sel := &monitorSelection{[]int{4}}
 	reqs := []scryerRequest{
 		{ID: "r1", Facet: "ANIME", Status: "APPROVED", ExternalIDs: []extID{{"tmdb", "2"}}, Selection: sel},
 		{ID: "r2", Facet: "MOVIE", Status: "PENDING", ExternalIDs: []extID{{"tmdb", "3"}}},

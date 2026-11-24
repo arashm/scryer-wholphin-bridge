@@ -45,16 +45,18 @@ type title struct {
 }
 
 type scryerRequest struct {
-	ID          string  `json:"id"`
-	Facet       string  `json:"facet"`
-	Status      string  `json:"status"`
-	Title       string  `json:"title"`
-	ExternalIDs []extID `json:"externalIds"`
-	CreatedAt   string  `json:"createdAt"`
-	UpdatedAt   string  `json:"updatedAt"`
-	Selection   *struct {
-		SeasonNumbers []int `json:"seasonNumbers"`
-	} `json:"requestedMonitorSelection"`
+	ID          string            `json:"id"`
+	Facet       string            `json:"facet"`
+	Status      string            `json:"status"`
+	Title       string            `json:"title"`
+	ExternalIDs []extID           `json:"externalIds"`
+	CreatedAt   string            `json:"createdAt"`
+	UpdatedAt   string            `json:"updatedAt"`
+	Selection   *monitorSelection `json:"requestedMonitorSelection"`
+}
+
+type monitorSelection struct {
+	SeasonNumbers []int `json:"seasonNumbers"`
 }
 
 type discoveryItem struct {
