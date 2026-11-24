@@ -10,9 +10,11 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // tmdbKey is optional. Scryer has no person data, so actor pages need TMDB.
@@ -275,4 +277,179 @@ func tmdbExtras(ctx context.Context, kind string, id int) <-chan map[string]any 
 		ch <- out
 	}()
 	return ch
+}
+
+// seerrToTMDB maps Seerr's discover filters to TMDB's. Any of them set makes the grid come
+// from TMDB, since Scryer's discovery can't filter by them.
+var seerrToTMDB = map[string]string{
+	"genre": "with_genres", "studio": "with_companies", "network": "with_networks",
+	"keywords": "with_keywords", "excludeKeywords": "without_keywords",
+	"primaryReleaseDateGte": "primary_release_date.gte", "primaryReleaseDateLte": "primary_release_date.lte",
+	"firstAirDateGte": "first_air_date.gte", "firstAirDateLte": "first_air_date.lte",
+	"withRuntimeGte": "with_runtime.gte", "withRuntimeLte": "with_runtime.lte",
+	"voteAverageGte": "vote_average.gte", "voteAverageLte": "vote_average.lte",
+	"voteCountGte": "vote_count.gte", "voteCountLte": "vote_count.lte",
+	"watchProviders": "with_watch_providers", "status": "with_status",
+	"certification": "certification", "certificationGte": "certification.gte", "certificationLte": "certification.lte",
+}
+
+// tmdbDiscover serves a filtered or re-sorted Discover grid from TMDB, with library status
+// from Scryer. Unfiltered grids (and everything without a key) stay on Scryer's lists.
+func tmdbDiscover(kind string, scryer apiFunc) apiFunc {
+	return func(ctx context.Context, r *http.Request, token string) (any, error) {
+		q, v := r.URL.Query(), url.Values{}
+		for s, t := range seerrToTMDB {
+			if x := q.Get(s); x != "" {
+				v.Set(t, x)
+			}
+		}
+		sort := q.Get("sortBy")
+		if tmdbKey == "" || (len(v) == 0 && (sort == "" || sort == "popularity.desc")) {
+			return scryer(ctx, r, token)
+		}
+		if v.Get("vote_average.gte") != "" && v.Get("vote_count.gte") == "" {
+			v.Set("vote_count.gte", "50") // or titles with a single 10/10 vote pass every rating filter
+		}
+		if kind == "tv" {
+			sort = strings.Replace(sort, "original_title", "original_name", 1) // Wholphin sends the movie key for TV
+		}
+		if sort != "" {
+			v.Set("sort_by", sort)
+			if strings.HasPrefix(sort, "vote_average") && v.Get("vote_count.gte") == "" {
+				v.Set("vote_count.gte", "200") // ponytail: fixed floor, else the top is obscure 10/10s
+			}
+		}
+		for s, t := range map[string]string{"watchRegion": "watch_region", "certificationCountry": "certification_country"} {
+			if x := q.Get(s); x != "" {
+				v.Set(t, x)
+			}
+		}
+		pg := queryInt(r, "page", 1)
+		v.Set("page", strconv.Itoa(pg))
+		var d struct {
+			TotalPages   int `json:"total_pages"`
+			TotalResults int `json:"total_results"`
+			Results      []tmdbCredit
+		}
+		if err := tmdbGet(ctx, "/discover/"+kind+"?"+v.Encode(), &d); err != nil {
+			return nil, err
+		}
+		for i := range d.Results {
+			d.Results[i].MediaType = kind
+		}
+		rs, err := fillMediaInfo(ctx, token, creditResults(d.Results))
+		if err != nil {
+			return nil, err
+		}
+		pages := min(d.TotalPages, 500) // TMDB serves no page past 500
+		return page{Page: pg, TotalPages: pages, TotalResults: min(d.TotalResults, pages*pageSize), Results: rs}, nil
+	}
+}
+
+type genreSlide struct {
+	ID        int      `json:"id"`
+	Name      string   `json:"name"`
+	Backdrops []string `json:"backdrops"`
+}
+
+// genreSlider lists TMDB's genres, each with backdrops of its most popular titles, for the
+// Discover genre rows and the genre filter. Remembered for a week.
+func genreSlider(kind string) apiFunc {
+	return func(ctx context.Context, r *http.Request, token string) (any, error) {
+		if tmdbKey == "" {
+			return []genreSlide{}, nil
+		}
+		gs := cached("tmdb:genres:"+kind, func() ([]genreSlide, bool) {
+			var d struct {
+				Genres []struct {
+					ID   int
+					Name string
+				}
+			}
+			if err := tmdbGet(ctx, "/genre/"+kind+"/list", &d); err != nil {
+				log.Printf("tmdb genres %s: %v", kind, err)
+				return nil, false
+			}
+			out := make([]genreSlide, len(d.Genres))
+			var wg sync.WaitGroup
+			var failed atomic.Bool
+			for i, g := range d.Genres {
+				out[i] = genreSlide{g.ID, g.Name, []string{}}
+				wg.Add(1)
+				go func(s *genreSlide) {
+					defer wg.Done()
+					tmdbSem <- struct{}{}
+					defer func() { <-tmdbSem }()
+					var p struct {
+						Results []struct {
+							BackdropPath string `json:"backdrop_path"`
+						}
+					}
+					if err := tmdbGet(ctx, "/discover/"+kind+"?sort_by=popularity.desc&with_genres="+strconv.Itoa(s.ID), &p); err != nil {
+						failed.Store(true) // keep what loaded, but try again next time
+						return
+					}
+					for _, x := range p.Results {
+						if len(s.Backdrops) < 4 && tmdbFileRe.MatchString(strings.TrimPrefix(x.BackdropPath, "/")) {
+							s.Backdrops = append(s.Backdrops, x.BackdropPath)
+						}
+					}
+				}(&out[i])
+			}
+			wg.Wait()
+			return out, !failed.Load()
+		})
+		if gs == nil {
+			return nil, &httpError{http.StatusBadGateway, "TMDB genres unavailable"}
+		}
+		return gs, nil
+	}
+}
+
+type watchProvider struct {
+	ID              int    `json:"id"`
+	Name            string `json:"name"`
+	LogoPath        string `json:"logoPath,omitempty"`
+	DisplayPriority int    `json:"displayPriority"`
+}
+
+var regionRe = regexp.MustCompile(`^[A-Z]{2}$`)
+
+// watchProviders lists the streaming services of a region, for the Studios filter. Remembered for a week.
+func watchProviders(ctx context.Context, r *http.Request, token string) (any, error) {
+	kind, region := "movie", r.URL.Query().Get("watchRegion")
+	if r.PathValue("kind") == "tv" {
+		kind = "tv"
+	}
+	if !regionRe.MatchString(region) {
+		region = "US"
+	}
+	if tmdbKey == "" {
+		return []watchProvider{}, nil
+	}
+	ps := cached("tmdb:providers:"+kind+":"+region, func() ([]watchProvider, bool) {
+		var d struct {
+			Results []struct {
+				ID         int            `json:"provider_id"`
+				Name       string         `json:"provider_name"`
+				LogoPath   string         `json:"logo_path"`
+				Priorities map[string]int `json:"display_priorities"`
+			}
+		}
+		if err := tmdbGet(ctx, "/watch/providers/"+kind+"?watch_region="+region, &d); err != nil {
+			log.Printf("tmdb providers %s %s: %v", kind, region, err)
+			return nil, false
+		}
+		out := make([]watchProvider, len(d.Results))
+		for i, x := range d.Results {
+			out[i] = watchProvider{x.ID, x.Name, x.LogoPath, x.Priorities[region]}
+		}
+		// Wholphin lists them in order, so the big services come first.
+		slices.SortStableFunc(out, func(a, b watchProvider) int { return a.DisplayPriority - b.DisplayPriority })
+		return out, true
+	})
+	if ps == nil {
+		return nil, &httpError{http.StatusBadGateway, "TMDB watch providers unavailable"}
+	}
+	return ps, nil
 }

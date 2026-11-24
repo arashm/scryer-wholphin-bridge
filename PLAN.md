@@ -76,7 +76,7 @@ Not built: `/auth/local` and `/auth/jellyfin`. Scryer sessions last only 3 days 
 | `GET /movie\|tv/{id}/ratings` | ratings (above) |
 | `GET /movie\|tv/{id}/similar`, `/recommendations` | `discoveryNeighbors` |
 | `GET /discover/trending`, `/movies`, `/tv`, `/tv/upcoming` | `discoveryItems` with `trending_now`, `popular_movies`, `popular_series`, `upcoming_series`; `offset=(page-1)*20` |
-| `GET /discover/movies/upcoming`, `/discover/genreslider/*`, `/watchproviders/*`, `/person/{id}/combined_credits` | empty |
+| `/discover/genreslider/*`, `/watchproviders/*`, filtered `/discover/movies\|tv` | TMDB (`/genre/*/list` + per-genre backdrops, `/watch/providers/*`, `/discover/*`), empty / Scryer without a key |
 | `POST /request` | `submitMediaRequest` (library by facet, `externalIds:[{source:"tmdb"}]`, seasons → `requestedMonitorType: ADVANCED` + `requestedMonitorSelection.seasonNumbers`; without ADVANCED Scryer drops the selection) |
 | `DELETE /request/{n}` | `cancelMyMediaRequest` |
 | `GET /request` | `myMediaRequests(limit: take, offset: skip)` minus CANCELED → `{pageInfo, results[{id, status, type, media:{tmdbId}, requestedBy}]}` |
@@ -86,7 +86,7 @@ Not built: `/auth/local` and `/auth/jellyfin`. Scryer sessions last only 3 days 
 ### Phase 2: optional
 - ~~`PUT /request/{id}` → `updateMyMediaRequest` (edit seasons)~~ (done: resends the request's quality profile, which is required, with `requestedMonitorType: ADVANCED`).
 - Personalized rows (`for_you`, `top_rated`) via env section mapping.
-- Genre filter (Scryer genres are strings, Seerr's are Int ids, so a lookup table is needed).
+- ~~Genre filter~~ (done via TMDB, whose genre ids are the ones Seerr uses).
 
 ## Code (Go, stdlib only)
 ```

@@ -310,8 +310,6 @@ func similar(k string) apiFunc {
 	}
 }
 
-func emptyList(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, []any{}) }
-
 // ---- details ----
 
 type genre struct {

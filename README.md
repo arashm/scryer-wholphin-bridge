@@ -57,7 +57,7 @@ SCRYER_URL=https://scryer.example.com go run .
 | `SCRYER_URL` | required | Scryer base URL as the bridge reaches it (an internal address is fine) |
 | `SCRYER_PUBLIC_URL` | `SCRYER_URL` | Scryer URL as the **TV** reaches it. Images are redirected there |
 | `LISTEN_ADDR` | `:5055` | |
-| `TMDB_API_KEY` | unset | Optional. Fills actor pages, cast, trailers, age ratings and missing backdrops (see below). A TMDB v3 API key or v4 read access token |
+| `TMDB_API_KEY` | unset | Optional. Adds genre rows, Discover filters, actor pages, cast, trailers, age ratings and missing overviews and backdrops (see below). A TMDB v3 API key or v4 read access token |
 | `BRIDGE_DRY_RUN` | off | `1` makes requests only preview (logged), so nothing is submitted |
 
 The bridge stores nothing. Each request carries the user's Scryer API key.
@@ -68,6 +68,7 @@ Get a free key under *Settings → API* on [themoviedb.org](https://www.themovie
 
 - **Actor pages.** Scryer has no person data, so without a key the "more from this actor" grid is empty. With one, the bridge gets the actor's movies and series from TMDB and marks which ones are in your library or requested, using Scryer.
 - **Detail pages.** Cast and crew (including the director), trailers, the movie's age rating, the tagline and the series' episode runtime. Fetched from TMDB while Scryer is queried, so pages don't load slower. If TMDB fails, the page loads without them.
+- **Genre rows and filters.** The *Genres* rows on Discover, and the genre, studio (streaming service), rating, age rating and status filters on the Movies and TV grids. A filtered or re-sorted grid comes from TMDB, marked with what's in your library or requested. Unfiltered grids still come from Scryer. Genres and services are remembered for a week.
 - **Overviews and backdrops in lists.** Scryer's discovery rows have no descriptions and often no backdrop. The bridge gets both from TMDB with one request per title, and uses the poster only if TMDB has no backdrop either. Results are remembered for a week (in memory, so a restart forgets them). The first load of a Discover row can take a couple of seconds.
 
 These images load from `image.tmdb.org`, so the TV needs internet access.

@@ -44,14 +44,15 @@ func routes() *http.ServeMux {
 	m.Handle("GET "+v1+"/search", api(search))
 
 	m.Handle("GET "+v1+"/discover/trending", api(discover("", `sectionId:"trending_now"`)))
-	m.Handle("GET "+v1+"/discover/movies", api(discover("", `sectionId:"popular_movies"`)))
-	m.Handle("GET "+v1+"/discover/tv", api(discover("", `sectionId:"popular_series"`)))
+	m.Handle("GET "+v1+"/discover/movies", api(tmdbDiscover("movie", discover("", `sectionId:"popular_movies"`))))
+	m.Handle("GET "+v1+"/discover/tv", api(tmdbDiscover("tv", discover("", `sectionId:"popular_series"`))))
 	// Scryer's upcoming sections are tiny and there's none for movies, so add the titles it tags as unreleased.
 	const unreleased = `statusTags:["Announced","Upcoming"], includeUnresolved:true, sort:RELEASE_DATE`
 	m.Handle("GET "+v1+"/discover/tv/upcoming", api(discover("tv", `sectionId:"upcoming_series"`, `sectionId:"upcoming_next_season"`, unreleased)))
 	m.Handle("GET "+v1+"/discover/movies/upcoming", api(discover("movie", unreleased)))
-	m.HandleFunc("GET "+v1+"/discover/genreslider/{kind}", emptyList)
-	m.HandleFunc("GET "+v1+"/watchproviders/{kind}", emptyList)
+	m.Handle("GET "+v1+"/discover/genreslider/movie", api(genreSlider("movie")))
+	m.Handle("GET "+v1+"/discover/genreslider/tv", api(genreSlider("tv")))
+	m.Handle("GET "+v1+"/watchproviders/{kind}", api(watchProviders))
 	m.Handle("GET "+v1+"/person/{id}/combined_credits", api(personCredits))
 
 	m.Handle("GET "+v1+"/movie/{id}", api(movieDetails))
