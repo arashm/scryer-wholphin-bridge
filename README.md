@@ -57,16 +57,17 @@ SCRYER_URL=https://scryer.example.com go run .
 | `SCRYER_URL` | required | Scryer base URL as the bridge reaches it (an internal address is fine) |
 | `SCRYER_PUBLIC_URL` | `SCRYER_URL` | Scryer URL as the **TV** reaches it. Images are redirected there |
 | `LISTEN_ADDR` | `:5055` | |
-| `TMDB_API_KEY` | unset | Optional. Fills actor pages and missing backdrops (see below). A TMDB v3 API key or v4 read access token |
+| `TMDB_API_KEY` | unset | Optional. Fills actor pages, cast, trailers, age ratings and missing backdrops (see below). A TMDB v3 API key or v4 read access token |
 | `BRIDGE_DRY_RUN` | off | `1` makes requests only preview (logged), so nothing is submitted |
 
 The bridge stores nothing. Each request carries the user's Scryer API key.
 
 ### TMDB (optional)
 
-Get a free key under *Settings → API* on [themoviedb.org](https://www.themoviedb.org/settings/api) and set `TMDB_API_KEY`. It fills two gaps in Scryer:
+Get a free key under *Settings → API* on [themoviedb.org](https://www.themoviedb.org/settings/api) and set `TMDB_API_KEY`. It fills these gaps in Scryer:
 
 - **Actor pages.** Scryer has no person data, so without a key the "more from this actor" grid is empty. With one, the bridge gets the actor's movies and series from TMDB and marks which ones are in your library or requested, using Scryer.
+- **Detail pages.** Cast and crew (including the director), trailers, the movie's age rating, the tagline and the series' episode runtime. Fetched from TMDB while Scryer is queried, so pages don't load slower. If TMDB fails, the page loads without them.
 - **Backdrops.** Many discovery titles have no backdrop in Scryer. The bridge then uses TMDB's backdrop, and the poster only if TMDB has none either. Which source a title uses is remembered for a week (in memory, so a restart forgets it).
 
 These images load from `image.tmdb.org`, so the TV needs internet access.

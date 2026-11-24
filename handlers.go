@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -344,6 +345,7 @@ func movieDetails(ctx context.Context, r *http.Request, token string) (any, erro
 	if err != nil {
 		return nil, err
 	}
+	extras := tmdbExtras(ctx, "movie", id)
 	var d struct {
 		Me *struct{ ID string }
 		M  *metaMovie
@@ -367,13 +369,15 @@ func movieDetails(ctx context.Context, r *http.Request, token string) (any, erro
 		release = yearDate(m.Year)
 	}
 	lib := newLibrary(d.T, d.Q, hashID(d.Me.ID))
-	return map[string]any{
+	out := map[string]any{
 		"id": id, "title": m.Name, "originalTitle": m.Name, "overview": m.Overview,
 		"posterPath": imagePath(m.PosterURL), "backdropPath": backdropPath("movie", id, m.BackgroundURL, m.PosterURL),
 		"releaseDate": release, "runtime": m.RuntimeMinutes, "imdbId": m.ImdbID, "status": m.Status,
 		"genres": genres(m.GenresAndThemes), "mediaInfo": lib.mediaInfo("movie", id),
 		"credits": map[string]any{"cast": []any{}, "crew": []any{}},
-	}, nil
+	}
+	maps.Copy(out, <-extras)
+	return out, nil
 }
 
 type metaSeries struct {
@@ -398,6 +402,7 @@ func tvDetails(ctx context.Context, r *http.Request, token string) (any, error) 
 	if err != nil {
 		return nil, err
 	}
+	extras := tmdbExtras(ctx, "tv", id)
 	var d struct {
 		Me *struct{ ID string }
 		S  *metaSeries
@@ -446,13 +451,15 @@ func tvDetails(ctx context.Context, r *http.Request, token string) (any, error) 
 	if s.Network != "" {
 		networks = append(networks, genre{hashID(s.Network), s.Network})
 	}
-	return map[string]any{
+	out := map[string]any{
 		"id": id, "name": s.Name, "originalName": s.Name, "overview": s.Overview,
 		"posterPath": imagePath(s.PosterURL), "backdropPath": backdropPath("tv", id, s.BackgroundURL, s.PosterURL),
 		"firstAirDate": first, "genres": genres(s.GenresAndThemes), "networks": networks,
 		"seasons": seasons, "numberOfSeason": len(seasons), "mediaInfo": lib.mediaInfo("tv", id),
 		"credits": map[string]any{"cast": []any{}, "crew": []any{}},
-	}, nil
+	}
+	maps.Copy(out, <-extras)
+	return out, nil
 }
 
 func ratings(k string) apiFunc {

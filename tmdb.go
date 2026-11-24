@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,7 +19,11 @@ import (
 var tmdbKey = os.Getenv("TMDB_API_KEY")
 
 func tmdbGet(ctx context.Context, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.themoviedb.org/3"+path+"?language=en-US", nil)
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.themoviedb.org/3"+path+sep+"language=en-US", nil)
 	if err != nil {
 		return err
 	}
@@ -131,4 +136,111 @@ func tmdbBackdrop(ctx context.Context) func(kind string, id int) string {
 			return d.BackdropPath, true
 		})
 	}
+}
+
+type tmdbPerson struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Character   string `json:"character,omitempty"`
+	Job         string `json:"job,omitempty"`
+	Department  string `json:"department,omitempty"`
+	ProfilePath string `json:"profile_path,omitempty"`
+}
+
+// seerrPerson is Seerr's CreditCast/CreditCrew; same fields as tmdbPerson, so it converts directly.
+type seerrPerson struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Character   string `json:"character,omitempty"`
+	Job         string `json:"job,omitempty"`
+	Department  string `json:"department,omitempty"`
+	ProfilePath string `json:"profilePath,omitempty"`
+}
+
+func seerrPeople(ps []tmdbPerson) []seerrPerson {
+	out := make([]seerrPerson, len(ps))
+	for i, p := range ps {
+		out[i] = seerrPerson(p)
+	}
+	return out
+}
+
+// tmdbRelease is a country's entry in TMDB release_dates, which Seerr passes through as "releases".
+type tmdbRelease struct {
+	Country string `json:"iso_3166_1"`
+	Dates   []struct {
+		Certification string `json:"certification"`
+	} `json:"release_dates"`
+}
+
+// tmdbExtras fetches the details-page fields Scryer lacks: cast and crew, trailers, age ratings
+// (movies), tagline and episode runtime (TV). It runs alongside the Scryer query, and its
+// result is merged into the response. nil without a key or on error, so the page still loads.
+func tmdbExtras(ctx context.Context, kind string, id int) <-chan map[string]any {
+	ch := make(chan map[string]any, 1)
+	if tmdbKey == "" {
+		ch <- nil
+		return ch
+	}
+	go func() {
+		var d struct {
+			Tagline        string
+			EpisodeRunTime []int `json:"episode_run_time"`
+			LastEpisode    *struct {
+				Runtime int
+			} `json:"last_episode_to_air"`
+			Credits struct{ Cast, Crew []tmdbPerson }
+			Videos  struct {
+				Results []struct{ Key, Name, Site, Type string }
+			}
+			ReleaseDates struct{ Results []tmdbRelease } `json:"release_dates"`
+		}
+		appendTo := "credits,videos"
+		if kind == "movie" {
+			appendTo += ",release_dates"
+		}
+		if err := tmdbGet(ctx, "/"+kind+"/"+strconv.Itoa(id)+"?append_to_response="+appendTo, &d); err != nil {
+			log.Printf("tmdb %s %d: %v", kind, id, err)
+			ch <- nil
+			return
+		}
+		videos := []map[string]string{}
+		for _, v := range d.Videos.Results {
+			if v.Site == "YouTube" && v.Type == "Trailer" { // Wholphin only shows trailers
+				videos = append(videos, map[string]string{"key": v.Key, "name": v.Name, "site": v.Site, "type": v.Type,
+					"url": "https://www.youtube.com/watch?v=" + url.QueryEscape(v.Key)})
+			}
+		}
+		out := map[string]any{
+			"tagline":       d.Tagline,
+			"credits":       map[string]any{"cast": seerrPeople(d.Credits.Cast), "crew": seerrPeople(d.Credits.Crew)},
+			"relatedVideos": videos,
+		}
+		if kind == "movie" {
+			// Wholphin shows the first certification of a country, so drop the dates without one
+			// (premieres, digital releases) or the rating is usually missing.
+			rels := []tmdbRelease{}
+			for _, r := range d.ReleaseDates.Results {
+				dates := r.Dates[:0]
+				for _, x := range r.Dates {
+					if x.Certification != "" {
+						dates = append(dates, x)
+					}
+				}
+				if len(dates) > 0 {
+					r.Dates = dates
+					rels = append(rels, r)
+				}
+			}
+			out["releases"] = map[string]any{"results": rels}
+		} else {
+			rt := d.EpisodeRunTime
+			if len(rt) == 0 && d.LastEpisode != nil && d.LastEpisode.Runtime > 0 { // TMDB leaves it empty for most newer shows
+				rt = []int{d.LastEpisode.Runtime}
+			}
+			out["episodeRunTime"] = rt
+		}
+		ch <- out
+	}()
+	return ch
 }
