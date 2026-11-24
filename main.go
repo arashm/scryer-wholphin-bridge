@@ -60,7 +60,7 @@ func routes() *http.ServeMux {
 	for _, k := range []string{"movie", "tv"} {
 		m.Handle("GET "+v1+"/"+k+"/{id}/ratings", api(ratings(k)))
 		m.Handle("GET "+v1+"/"+k+"/{id}/similar", api(similar(k)))
-		m.Handle("GET "+v1+"/"+k+"/{id}/recommendations", api(similar(k)))
+		m.Handle("GET "+v1+"/"+k+"/{id}/recommendations", api(recommendations(k)))
 	}
 
 	m.Handle("GET "+v1+"/request", api(listRequests))

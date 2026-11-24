@@ -326,24 +326,47 @@ func tmdbDiscover(kind string, scryer apiFunc) apiFunc {
 		}
 		pg := queryInt(r, "page", 1)
 		v.Set("page", strconv.Itoa(pg))
-		var d struct {
-			TotalPages   int `json:"total_pages"`
-			TotalResults int `json:"total_results"`
-			Results      []tmdbCredit
-		}
-		if err := tmdbGet(ctx, "/discover/"+kind+"?"+v.Encode(), &d); err != nil {
-			return nil, err
-		}
-		for i := range d.Results {
-			d.Results[i].MediaType = kind
-		}
-		rs, err := fillMediaInfo(ctx, token, creditResults(d.Results))
+		return tmdbPage(ctx, token, kind, "/discover/"+kind+"?"+v.Encode(), pg)
+	}
+}
+
+// recommendations is TMDB's "viewers also liked" list; Similar stays on Scryer's neighbors.
+// Without a key it's empty, so Wholphin hides the row instead of repeating Similar.
+func recommendations(kind string) apiFunc {
+	return func(ctx context.Context, r *http.Request, token string) (any, error) {
+		id, err := pathInt(r, "id")
 		if err != nil {
 			return nil, err
 		}
-		pages := min(d.TotalPages, 500) // TMDB serves no page past 500
-		return page{Page: pg, TotalPages: pages, TotalResults: min(d.TotalResults, pages*pageSize), Results: rs}, nil
+		pg := queryInt(r, "page", 1)
+		if tmdbKey == "" {
+			return page{Page: pg, Results: []result{}}, nil
+		}
+		return tmdbPage(ctx, token, kind, "/"+kind+"/"+strconv.Itoa(id)+"/recommendations?page="+strconv.Itoa(pg), pg)
 	}
+}
+
+// tmdbPage turns one page of a TMDB title list into a Seerr page with library status from Scryer.
+func tmdbPage(ctx context.Context, token, kind, path string, pg int) (any, error) {
+	var d struct {
+		TotalPages   int `json:"total_pages"`
+		TotalResults int `json:"total_results"`
+		Results      []tmdbCredit
+	}
+	if err := tmdbGet(ctx, path, &d); err != nil {
+		return nil, err
+	}
+	for i := range d.Results {
+		if d.Results[i].MediaType == "" { // discover results don't say
+			d.Results[i].MediaType = kind
+		}
+	}
+	rs, err := fillMediaInfo(ctx, token, creditResults(d.Results))
+	if err != nil {
+		return nil, err
+	}
+	pages := min(d.TotalPages, 500) // TMDB serves no page past 500
+	return page{Page: pg, TotalPages: pages, TotalResults: min(d.TotalResults, pages*pageSize), Results: rs}, nil
 }
 
 type genreSlide struct {

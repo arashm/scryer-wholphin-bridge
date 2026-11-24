@@ -68,6 +68,7 @@ Get a free key under *Settings → API* on [themoviedb.org](https://www.themovie
 
 - **Actor pages.** Scryer has no person data, so without a key the "more from this actor" grid is empty. With one, the bridge gets the actor's movies and series from TMDB and marks which ones are in your library or requested, using Scryer.
 - **Detail pages.** Cast and crew (including the director), trailers, the movie's age rating, the tagline and the series' episode runtime. Fetched from TMDB while Scryer is queried, so pages don't load slower. If TMDB fails, the page loads without them.
+- **Recommended row.** On detail pages, *Similar* comes from Scryer and *Recommended* from TMDB's recommendations, marked with what's in your library or requested. Without a key the Recommended row is hidden, since it would repeat Similar.
 - **Genre rows and filters.** The *Genres* rows on Discover, and the genre, studio (streaming service), rating, age rating and status filters on the Movies and TV grids. A filtered or re-sorted grid comes from TMDB, marked with what's in your library or requested. Unfiltered grids still come from Scryer. Genres and services are remembered for a week.
 - **Overviews and backdrops in lists.** Scryer's discovery rows have no descriptions and often no backdrop. The bridge gets both from TMDB with one request per title, and uses the poster only if TMDB has no backdrop either. Results are remembered for a week (in memory, so a restart forgets them). The first load of a Discover row can take a couple of seconds.
 
@@ -103,8 +104,8 @@ With **Auto-approve** on, a request from the TV starts a real download immediate
 - Search returns a single page (up to 20 movies plus series).
 - Upcoming rows are short: Scryer only knows a handful of unreleased titles (its upcoming sections plus titles tagged Announced/Upcoming).
 - Many discovery titles have no backdrop in Scryer. Without `TMDB_API_KEY`, their poster is shown as the backdrop instead.
-- Empty: genre rows, streaming providers. Actor pages are empty unless `TMDB_API_KEY` is set.
-- No username/password login, no 4K, no editing of an existing request. See `PLAN.md`.
+- Without `TMDB_API_KEY`: no genre rows, Discover filters, Recommended row or actor pages.
+- No username/password login, no 4K. See `PLAN.md`.
 
 ## Development
 
