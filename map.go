@@ -288,17 +288,20 @@ func kind(facet string) string {
 	return "tv"
 }
 
-func ratingScore(rs []rating, source string) *int {
-	for _, r := range rs {
-		if r.Source != source {
-			continue
+// ratingScore is the 0–100 score of the first source that has one.
+func ratingScore(rs []rating, sources ...string) *int {
+	for _, src := range sources {
+		for _, r := range rs {
+			if r.Source != src {
+				continue
+			}
+			v := r.Normalized * 10
+			if r.Score != nil {
+				v = *r.Score
+			}
+			n := int(math.Round(v))
+			return &n
 		}
-		v := r.Normalized * 10
-		if r.Score != nil {
-			v = *r.Score
-		}
-		n := int(math.Round(v))
-		return &n
 	}
 	return nil
 }

@@ -154,6 +154,7 @@ func fillMediaInfo(ctx context.Context, token string, rs []result) ([]result, er
 	if err != nil {
 		return nil, err
 	}
+	tmdbOverviews(ctx, rs)
 	for i := range rs {
 		rs[i].MediaInfo = lib.mediaInfo(rs[i].MediaType, rs[i].ID)
 	}
@@ -486,7 +487,9 @@ func ratings(k string) apiFunc {
 		if v := ratingScore(d.M.ExternalRatings, "tomatoes"); v != nil {
 			out["criticsScore"] = *v
 		}
-		if v := ratingScore(d.M.ExternalRatings, "popcorn"); v != nil && k == "movie" {
+		// Wholphin shows this as a star out of 10, and only for movies. New titles often have no
+		// Rotten Tomatoes audience score yet, so fall back to the general ones.
+		if v := ratingScore(d.M.ExternalRatings, "popcorn", "imdb", "tmdb", "trakt"); v != nil && k == "movie" {
 			out["audienceScore"] = *v
 		}
 		return out, nil
@@ -751,7 +754,7 @@ func imageProxy(w http.ResponseWriter, r *http.Request) {
 const cacheTTL = 7 * 24 * time.Hour
 
 type cacheEntry struct {
-	v     string
+	v     any
 	until time.Time
 }
 
@@ -762,12 +765,12 @@ var cache = struct {
 }{m: map[string]cacheEntry{}}
 
 // cached returns f's value for key, remembering it for cacheTTL when f says it's definitive.
-func cached(key string, f func() (v string, ok bool)) string {
+func cached[T any](key string, f func() (v T, ok bool)) T {
 	cache.Lock()
 	e, hit := cache.m[key]
 	cache.Unlock()
 	if hit && time.Now().Before(e.until) {
-		return e.v
+		return e.v.(T)
 	}
 	v, ok := f()
 	if ok {

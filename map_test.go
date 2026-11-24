@@ -140,6 +140,9 @@ func TestRatingScore(t *testing.T) {
 	if v := ratingScore(rs, "popcorn"); v != nil {
 		t.Errorf("missing source = %v", *v)
 	}
+	if v := ratingScore(rs, "popcorn", "tomatoes"); v == nil || *v != 36 {
+		t.Errorf("first source with a score = %v", v)
+	}
 }
 
 func TestHashIDStable(t *testing.T) {

@@ -68,7 +68,7 @@ Get a free key under *Settings → API* on [themoviedb.org](https://www.themovie
 
 - **Actor pages.** Scryer has no person data, so without a key the "more from this actor" grid is empty. With one, the bridge gets the actor's movies and series from TMDB and marks which ones are in your library or requested, using Scryer.
 - **Detail pages.** Cast and crew (including the director), trailers, the movie's age rating, the tagline and the series' episode runtime. Fetched from TMDB while Scryer is queried, so pages don't load slower. If TMDB fails, the page loads without them.
-- **Backdrops.** Many discovery titles have no backdrop in Scryer. The bridge then uses TMDB's backdrop, and the poster only if TMDB has none either. Which source a title uses is remembered for a week (in memory, so a restart forgets it).
+- **Overviews and backdrops in lists.** Scryer's discovery rows have no descriptions and often no backdrop. The bridge gets both from TMDB with one request per title, and uses the poster only if TMDB has no backdrop either. Results are remembered for a week (in memory, so a restart forgets them). The first load of a Discover row can take a couple of seconds.
 
 These images load from `image.tmdb.org`, so the TV needs internet access.
 

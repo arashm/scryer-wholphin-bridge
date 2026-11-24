@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // tmdbKey is optional. Scryer has no person data, so actor pages need TMDB.
@@ -115,27 +116,58 @@ func tmdbImage(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "https://image.tmdb.org/t/p/"+size+"/"+file, http.StatusFound)
 }
 
+// tmdbBasics is a title's TMDB overview and backdrop file. Scryer's discovery items lack the
+// overview and often the backdrop; one request gets both, remembered for a week.
+type tmdbBasics struct{ Overview, Backdrop string }
+
+func tmdbTitle(ctx context.Context, kind string, id int) tmdbBasics {
+	if tmdbKey == "" {
+		return tmdbBasics{}
+	}
+	return cached("tmdb:"+kind+":"+strconv.Itoa(id), func() (tmdbBasics, bool) {
+		tmdbSem <- struct{}{}
+		defer func() { <-tmdbSem }()
+		var d struct {
+			Overview     string
+			BackdropPath string `json:"backdrop_path"`
+		}
+		err := tmdbGet(ctx, "/"+kind+"/"+strconv.Itoa(id), &d)
+		var he *httpError
+		if errors.As(err, &he) && he.code == http.StatusNotFound {
+			return tmdbBasics{}, true
+		}
+		if err != nil {
+			return tmdbBasics{}, false
+		}
+		if !tmdbFileRe.MatchString(strings.TrimPrefix(d.BackdropPath, "/")) {
+			d.BackdropPath = ""
+		}
+		return tmdbBasics{d.Overview, d.BackdropPath}, true
+	})
+}
+
+// tmdbSem caps parallel TMDB lookups; a Discover page asks for a few rows of 20 at once.
+// ponytail: fixed cap of 8, well under TMDB's ~40 requests/second.
+var tmdbSem = make(chan struct{}, 8)
+
 // tmdbBackdrop looks up a title's backdrop file on TMDB, or "" without a key or backdrop.
 func tmdbBackdrop(ctx context.Context) func(kind string, id int) string {
-	return func(kind string, id int) string {
-		if tmdbKey == "" {
-			return ""
+	return func(kind string, id int) string { return tmdbTitle(ctx, kind, id).Backdrop }
+}
+
+// tmdbOverviews fills empty overviews, which Wholphin shows in the Discover header.
+func tmdbOverviews(ctx context.Context, rs []result) {
+	var wg sync.WaitGroup
+	for i := range rs {
+		if rs[i].Overview == "" && tmdbKey != "" {
+			wg.Add(1)
+			go func(r *result) {
+				defer wg.Done()
+				r.Overview = tmdbTitle(ctx, r.MediaType, r.ID).Overview
+			}(&rs[i])
 		}
-		return cached("tmdb:"+kind+":"+strconv.Itoa(id), func() (string, bool) {
-			var d struct {
-				BackdropPath string `json:"backdrop_path"`
-			}
-			err := tmdbGet(ctx, "/"+kind+"/"+strconv.Itoa(id), &d)
-			var he *httpError
-			if errors.As(err, &he) && he.code == http.StatusNotFound {
-				return "", true
-			}
-			if err != nil || !tmdbFileRe.MatchString(strings.TrimPrefix(d.BackdropPath, "/")) {
-				return "", err == nil
-			}
-			return d.BackdropPath, true
-		})
 	}
+	wg.Wait()
 }
 
 type tmdbPerson struct {
